@@ -1,66 +1,91 @@
 -- Reanimate.lua
--- The heart of reanimation. It rebuilds your character rig because Roblox doesn't like us having fun.
+-- The heart of reanimation. It rebuilds your character rig because Roblox doesn't want you having fun.
 
 local Reanimate = {}
 
--- Load HelperFunctions because why reinvent the wheel?
+-- Load HelperFunctions because nobody likes writing the same code twice
 local HelperFunctions
 
--- State vars for tracking chaos
-local originalRigState = {} -- Backup of the original rig
-local currentRigType = nil -- Tracks the current rig type (R6 or R15)
+-- Function to patch welds by resetting the character
+local function patchWelds(character)
+    local player = game.Players.LocalPlayer
+    player.Character = nil
+    player.Character = character
 
--- Helper function to reanimate R6 rigs
-local function reanimateR6(character)
-    print("[Reanimate] Starting R6 reanimation...")
-    local torso = character:FindFirstChild("Torso")
-    local head = character:FindFirstChild("Head")
-    local leftArm = character:FindFirstChild("Left Arm")
-    local rightArm = character:FindFirstChild("Right Arm")
-    local leftLeg = character:FindFirstChild("Left Leg")
-    local rightLeg = character:FindFirstChild("Right Leg")
-
-    if not (torso and head and leftArm and rightArm and leftLeg and rightLeg) then
-        error("[Reanimate] Missing R6 parts. Rig is incomplete.")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp:Destroy()
     end
 
-    -- Recreate Motor6D joints
-    HelperFunctions.createMotor6D("Neck", torso, head)
-    HelperFunctions.createMotor6D("Left Shoulder", torso, leftArm)
-    HelperFunctions.createMotor6D("Right Shoulder", torso, rightArm)
-    HelperFunctions.createMotor6D("Left Hip", torso, leftLeg)
-    HelperFunctions.createMotor6D("Right Hip", torso, rightLeg)
-
-    print("[Reanimate] R6 reanimation complete.")
-    currentRigType = Enum.HumanoidRigType.R6
+    print("[Reanimate] Welds patched.")
 end
 
--- Helper function to reanimate R15 rigs
-local function reanimateR15(character)
-    print("[Reanimate] Starting R15 reanimation...")
-    local upperTorso = character:FindFirstChild("UpperTorso")
-    local head = character:FindFirstChild("Head")
-    local leftUpperArm = character:FindFirstChild("LeftUpperArm")
-    local rightUpperArm = character:FindFirstChild("RightUpperArm")
-    local leftUpperLeg = character:FindFirstChild("LeftUpperLeg")
-    local rightUpperLeg = character:FindFirstChild("RightUpperLeg")
+-- Function to create a protected welds part
+local function createProtectedWelds(character)
+    local protectedWelds = Instance.new("Part", workspace)
+    protectedWelds.Name = game.Players.LocalPlayer.Name .. " Protected Welds"
+    protectedWelds.Anchored = true
+    protectedWelds.CFrame = character:FindFirstChild("Torso") and character.Torso.CFrame or character.UpperTorso.CFrame
+    protectedWelds.CanCollide = false
+    protectedWelds.Transparency = 1
+    protectedWelds.Size = Vector3.new(9e9, 9e9, 9e9)
 
-    if not (upperTorso and head and leftUpperArm and rightUpperArm and leftUpperLeg and rightUpperLeg) then
-        error("[Reanimate] Missing R15 parts. Rig is incomplete.")
+    print("[Reanimate] Protected welds created.")
+    return protectedWelds
+end
+
+-- Function to break all joints in the character
+local function breakJoints(character)
+    character:BreakJoints()
+    print("[Reanimate] Joints broken.")
+end
+
+-- Function to align accessories to the protected welds
+local function alignAccessories(character, protectedWelds)
+    for _, accessory in pairs(character:GetChildren()) do
+        if accessory:IsA("Accessory") then
+            local handle = accessory.Handle
+
+            -- Create attachments and alignment constraints
+            local alignPos = Instance.new("AlignPosition", handle)
+            local alignOri = Instance.new("AlignOrientation", handle)
+            local attachment1 = Instance.new("Attachment", handle)
+            local attachment2 = Instance.new("Attachment", protectedWelds)
+
+            alignPos.Attachment0 = attachment1
+            alignOri.Attachment0 = attachment1
+            alignPos.Attachment1 = attachment2
+            alignOri.Attachment1 = attachment2
+
+            alignPos.Responsiveness = 300
+            alignPos.MaxForce = 5e9
+            alignOri.MaxTorque = 5e9
+            alignOri.Responsiveness = 300
+
+            print("[Reanimate] Accessory aligned:", accessory.Name)
+        end
     end
-
-    -- Recreate Motor6D joints
-    HelperFunctions.createMotor6D("Neck", upperTorso, head)
-    HelperFunctions.createMotor6D("Left Shoulder", upperTorso, leftUpperArm)
-    HelperFunctions.createMotor6D("Right Shoulder", upperTorso, rightUpperArm)
-    HelperFunctions.createMotor6D("Left Hip", upperTorso, leftUpperLeg)
-    HelperFunctions.createMotor6D("Right Hip", upperTorso, rightUpperLeg)
-
-    print("[Reanimate] R15 reanimation complete.")
-    currentRigType = Enum.HumanoidRigType.R15
 end
 
--- Initialize Reanimate
+-- Function to apply netless movement
+local function applyNetless(character, protectedWelds)
+    game:GetService("RunService").Heartbeat:Connect(function()
+        -- Adjust velocity for the protected welds
+        protectedWelds.Velocity = Vector3.new(0, 35, 0)
+
+        -- Adjust velocity for character parts and accessories
+        for _, part in pairs(character:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.Velocity = Vector3.new(0, -32.5, 0)
+            elseif part:IsA("Accessory") then
+                part.Handle.Velocity = Vector3.new(0, -32.5, 0)
+            end
+        end
+    end)
+    print("[Reanimate] Netless velocity applied.")
+end
+
+-- Initialization function for reanimation
 function Reanimate.init(player, helperFunctions)
     print("[Reanimate] Initializing...")
     HelperFunctions = helperFunctions
@@ -70,46 +95,24 @@ function Reanimate.init(player, helperFunctions)
     end
 
     local character = player.Character or player.CharacterAdded:Wait()
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
 
-    if not humanoid then
-        error("[Reanimate] Humanoid not found.")
-    end
+    -- Step 1: Patch welds and create protected welds
+    patchWelds(character)
+    local protectedWelds = createProtectedWelds(character)
 
-    originalRigState = HelperFunctions.backupRig(character)
-    print("[Reanimate] Backed up original rig.")
+    -- Step 2: Break joints and align accessories
+    breakJoints(character)
+    alignAccessories(character, protectedWelds)
 
-    if humanoid.RigType == Enum.HumanoidRigType.R6 then
-        reanimateR6(character)
-    elseif humanoid.RigType == Enum.HumanoidRigType.R15 then
-        reanimateR15(character)
-    else
-        error("[Reanimate] Unknown rig type.")
-    end
+    -- Step 3: Apply netless movement
+    applyNetless(character, protectedWelds)
+
+    print("[Reanimate] Initialization complete.")
 end
 
--- Reset to original rig state
+-- Function to reset to original state (placeholder if needed)
 function Reanimate.resetToOriginal(player)
-    local character = player.Character or player.CharacterAdded:Wait()
-    for partName, cframe in pairs(originalRigState) do
-        local part = character:FindFirstChild(partName)
-        if part then
-            part.CFrame = cframe
-        end
-    end
-    print("[Reanimate] Rig reset to original state.")
-end
-
--- Switch to R6 rig
-function Reanimate.switchToR6(player)
-    local character = player.Character or player.CharacterAdded:Wait()
-    reanimateR6(character)
-end
-
--- Switch to R15 rig
-function Reanimate.switchToR15(player)
-    local character = player.Character or player.CharacterAdded:Wait()
-    reanimateR15(character)
+    print("[Reanimate] Reset to original is not supported in this method.")
 end
 
 return Reanimate
